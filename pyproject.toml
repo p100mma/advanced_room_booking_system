@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "room-booking"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["numpy", "pandas"] #pandas for familiar datetime objects. 
+				   #numpy because pandas without numpy = cringe
+
+[project.optional-dependencies] #this is for the developer. user doesnt need it unless he wants to. 
+dev= ["pytest"]# if he wants to, he knows how to enable it during  install
+
+# tells tool.setuptools to look for pacakges in the source folder (relative to the root)
+[tool.setuptools.packages.find]
+where = ["source"]
