@@ -16,7 +16,7 @@ from datetime import date, time
 from dataclasses import dataclass
 
 # from enum import Enum such that you can use enums 
-from enum import Enum
+from enum import Enum, auto
 
 class RoomType(Enum):
     LAB = 1
@@ -59,6 +59,14 @@ class Reservation:
     owner_id: int #of StaffMember
 
 
-    
 
-
+@dataclass
+class TimetableEntry:
+    id: int
+    room_id: int
+    time_slot_id: int
+    owner_id: int
+    weekday: int       # Monday = 0, Sunday = 6
+    semester_start: date
+    semester_end: date
+    course_name: str

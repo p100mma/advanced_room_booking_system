@@ -1,5 +1,5 @@
 
-from datetime import date
+from datetime import date, timedelta
 from collections.abc import Iterable
 
 # current workdir
@@ -9,6 +9,7 @@ from .models import (
     StaffMember,
     Reservation,
     ReservationStatus,
+    TimetableEntry
 )
 
 
@@ -67,7 +68,7 @@ class BookingService:
             raise ValueError(f"Unknown room id {room_id}")
 
         if time_slot_id  not in self.time_slots:
-            raise ValueError(f"Unknown time slot id {room_id}")
+            raise ValueError(f"Unknown time slot id {time_slot_id}")
 
         requested_slot= self.time_slots[time_slot_id]
         for existing in self.reservations.values():
@@ -106,7 +107,6 @@ class BookingService:
         if not self.is_available(room_id, time_slot_id, day):
             raise RoomUnavailableError("ZAJENTE")
 
-        requested_slot = self.time_slots[time_slot_id]
 
         # Check whether the room is already booked
         # during any overlapping time interval on that day.
@@ -148,3 +148,146 @@ class BookingService:
 
         return reservation
 
+
+
+class TimetableImportResult:
+    """Summary of a timetable import operation."""
+
+    def __init__(self):
+        self.created = []
+        self.conflicts = []
+
+    @property
+    def created_count(self):
+        return len(self.created)
+
+    @property
+    def conflict_count(self):
+        return len(self.conflicts)
+
+
+class TimetableService:
+    def __init__(
+        self,
+        booking_service: BookingService,
+        timetable_entries: Iterable[TimetableEntry] = (),
+    ):
+        self.booking_service = booking_service
+        self.timetable_entries = self._index_by_id(timetable_entries)
+
+    @staticmethod
+    def _index_by_id(items):
+        result = {}
+
+        for item in items:
+            if item.id in result:
+                raise ValueError(f"Duplicate timetable entry ID: {item.id}")
+
+            result[item.id] = item
+
+        return result
+
+    def list_entries(self):
+        """Return all timetable entries."""
+        return list(self.timetable_entries.values())
+
+    @staticmethod
+    def _get_matching_dates(entry, semester_start, semester_end):
+        """
+        Generate dates on which a timetable entry takes place.
+        Only dates within both the requested semester and the
+        timetable entry's own validity period are returned.
+        """
+
+        start = max(semester_start, entry.semester_start)
+        end = min(semester_end, entry.semester_end)
+
+        if start > end:
+            return []
+
+        # Find the first occurrence of the required weekday.
+        days_until_weekday = (entry.weekday - start.weekday()) % 7
+        current_day = start + timedelta(days=days_until_weekday)
+
+        matching_dates = []
+
+        while current_day <= end:
+            matching_dates.append(current_day)
+            current_day += timedelta(days=7)
+
+        return matching_dates
+
+    def import_reservations_from_timetable(
+        self,
+        semester_start: date,
+        semester_end: date,
+    ) -> TimetableImportResult:
+        """
+        Create reservations for all timetable entries
+        within the selected semester.
+
+        Conflicts are recorded and processing continues.
+        """
+
+        if semester_start > semester_end:
+            raise ValueError("Semester start must not be after semester end.")
+
+        result = TimetableImportResult()
+
+        for entry in self.timetable_entries.values():
+
+            matching_dates = self._get_matching_dates(
+                entry,
+                semester_start,
+                semester_end,
+            )
+
+            for day in matching_dates:
+
+                try:
+                    reservation = self.booking_service.create_reservation(
+                        room_id=entry.room_id,
+                        time_slot_id=entry.time_slot_id,
+                        owner_id=entry.owner_id,
+                        day=day,
+                    )
+
+                    result.created.append(reservation)
+
+                except RoomUnavailableError:
+                    result.conflicts.append({
+                        "entry_id": entry.id,
+                        "course_name": entry.course_name,
+                        "room_id": entry.room_id,
+                        "day": day,
+                        "time_slot_id": entry.time_slot_id,
+                    })
+
+        return result
+
+
+import csv 
+
+def load_entries_from_csv(filename):
+    """Read timetable entries from a CSV file."""
+
+    entries = []
+
+    with open(filename, mode="r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            entry = TimetableEntry(
+                id=int(row["id"]),
+                room_id=int(row["room_id"]),
+                time_slot_id=int(row["time_slot_id"]),
+                owner_id=int(row["owner_id"]),
+                weekday=int(row["weekday"]),
+                semester_start=date.fromisoformat(row["semester_start"]),
+                semester_end=date.fromisoformat(row["semester_end"]),
+                course_name=row["course_name"],
+            )
+
+            entries.append(entry)
+
+    return entries
